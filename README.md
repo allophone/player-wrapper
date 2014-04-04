@@ -1,4 +1,4 @@
 player-wrapper
 ==============
 
-Perl wrapper around a few media players - just a placeholder to be filled soon!
+Perl wrapper around a few media players (just a placeholder for now...)
