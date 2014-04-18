@@ -8,8 +8,9 @@ use DH::Util;
 use DH::File;
 
 use Player::Audacity;
-use Player::TableForLabels;
 use Player::Util;
+
+use Player::Intervals::TableForLabels;
 
 my $Glob;
 
