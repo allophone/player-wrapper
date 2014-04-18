@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<root>
+
+<fullscreen>false</fullscreen>
+<aspectratio>default</aspectratio>
+<audiodelay>0</audiodelay>
+<apiversion>3</apiversion>
+<time>223</time>
+<volume>263</volume>
+<length>5186</length>
+<random>false</random>
+<audiofilters>
+  <filter_0></filter_0></audiofilters>
+<rate>1</rate>
+<videoeffects>
+  <hue>0</hue>
+  <saturation>1</saturation>
+  <contrast>1.49</contrast>
+  <brightness>1.38</brightness>
+  <gamma>1</gamma></videoeffects>
+<state>paused</state>
+<loop>false</loop>
+<version>2.0.8 Twoflower</version>
+<position>0.043106466531754</position>
+<repeat>true</repeat>
+<subtitledelay>0</subtitledelay>
+<equalizer></equalizer><information>
+    <category name="meta">
+    <info name='setting'> HAS_INDEX TRUST_CKTYPE</info><info name='filename'>lanyu.avi</info>    </category>
+  <category name='Stream 0'><info name='Type'>Video</info><info name='Frame rate'>25</info><info name='Decoded format'>Planar 4:2:0 YUV</info><info name='Codec'>MPEG-4 Video (DX50)</info><info name='Resolution'>640x432</info></category><category name='Stream 1'><info name='Bitrate'>192 kb/s</info><info name='Type'>Audio</info><info name='Channels'>Stereo</info><info name='Sample rate'>44100 Hz</info><info name='Codec'>MPEG Audio layer 1/2/3 (mpga)</info></category>  </information>
+  <stats>
+  <lostabuffers>10</lostabuffers>
+<readpackets>2533</readpackets>
+<lostpictures>5</lostpictures>
+<demuxreadbytes>19500354</demuxreadbytes>
+<demuxbitrate>0.062058247625828</demuxbitrate>
+<playedabuffers>6248</playedabuffers>
+<demuxcorrupted>0</demuxcorrupted>
+<sendbitrate>0</sendbitrate>
+<sentbytes>0</sentbytes>
+<displayedpictures>95161</displayedpictures>
+<demuxreadpackets>0</demuxreadpackets>
+<sentpackets>0</sentpackets>
+<inputbitrate>0.060400050133467</inputbitrate>
+<demuxdiscontinuity>0</demuxdiscontinuity>
+<averagedemuxbitrate>0</averagedemuxbitrate>
+<decodedvideo>4084</decodedvideo>
+<averageinputbitrate>0</averageinputbitrate>
+<readbytes>23873100</readbytes>
+<decodedaudio>6253</decodedaudio>
+  </stats>
+</root>

@@ -1,0 +1,110 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<HTML>
+<HEAD>
+	<META HTTP-EQUIV="CONTENT-TYPE" CONTENT="text/html; charset=utf-8">
+	<TITLE>bugs</TITLE>
+	<META NAME="GENERATOR" CONTENT="LibreOffice 4.0.4.2 (Linux)">
+	<META NAME="CREATED" CONTENT="0;0">
+	<META NAME="CHANGEDBY" CONTENT="Detlev Hauschildt">
+	<META NAME="CHANGED" CONTENT="20140412;17504400">
+	<META NAME="CHANGEDBY" CONTENT="Detlev Hauschildt">
+	<META NAME="CHANGEDBY" CONTENT="Detlev Hauschildt">
+	<STYLE TYPE="text/css">
+	<!--
+		@page { size: 21cm 29.7cm; margin-left: 0.5cm; margin-right: 0.5cm }
+		P { margin-bottom: 0.1cm; page-break-before: auto; page-break-after: auto }
+		P.western { font-size: 10pt }
+		P.cjk { font-family: "SimSun"; font-size: 18pt }
+		TD P { margin-bottom: 0.1cm; page-break-before: auto; page-break-after: auto }
+		TD P.western { font-size: 10pt }
+		TD P.cjk { font-family: "SimSun"; font-size: 18pt }
+		TH P { margin-bottom: 0.1cm; page-break-before: auto; page-break-after: auto }
+		TH P.western { font-size: 10pt }
+		TH P.cjk { font-family: "SimSun"; font-size: 18pt }
+	-->
+	</STYLE>
+</HEAD>
+<BODY LANG="en-GB" DIR="LTR">
+<P CLASS="western"><BR><BR>
+</P>
+<TABLE WIDTH=100% CELLPADDING=4 CELLSPACING=0>
+	<COL WIDTH=30*>
+	<COL WIDTH=40*>
+	<COL WIDTH=186*>
+	<TR VALIGN=TOP>
+		<TH WIDTH=12% STYLE="border-top: 1px solid #000000; border-bottom: 1px solid #000000; border-left: 1px solid #000000; border-right: none; padding-top: 0.1cm; padding-bottom: 0.1cm; padding-left: 0.1cm; padding-right: 0cm">
+			<P CLASS="western">status</P>
+		</TH>
+		<TH WIDTH=16% STYLE="border-top: 1px solid #000000; border-bottom: 1px solid #000000; border-left: 1px solid #000000; border-right: none; padding-top: 0.1cm; padding-bottom: 0.1cm; padding-left: 0.1cm; padding-right: 0cm">
+			<P CLASS="western">short</P>
+		</TH>
+		<TH WIDTH=73% STYLE="border: 1px solid #000000; padding: 0.1cm">
+			<P CLASS="western">long</P>
+		</TH>
+	</TR>
+	<TR VALIGN=TOP>
+		<TD WIDTH=12% STYLE="border-top: none; border-bottom: 1px solid #000000; border-left: 1px solid #000000; border-right: none; padding-top: 0cm; padding-bottom: 0.1cm; padding-left: 0.1cm; padding-right: 0cm">
+			<P CLASS="western"><BR>
+			</P>
+		</TD>
+		<TD WIDTH=16% STYLE="border-top: none; border-bottom: 1px solid #000000; border-left: 1px solid #000000; border-right: none; padding-top: 0cm; padding-bottom: 0.1cm; padding-left: 0.1cm; padding-right: 0cm">
+			<P CLASS="western">refocus after selection retrieval</P>
+		</TD>
+		<TD WIDTH=73% STYLE="border-top: none; border-bottom: 1px solid #000000; border-left: 1px solid #000000; border-right: 1px solid #000000; padding-top: 0cm; padding-bottom: 0.1cm; padding-left: 0.1cm; padding-right: 0.1cm">
+			<P CLASS="western">in [[ Player::Audacity ]]</P>
+			<P CLASS="western">Situation:</P>
+			<P CLASS="western">first selection retrieval during session with a
+			file (when new project file needs to be written)</P>
+			<P CLASS="western">Problem: word doesn't regain focus afterwards</P>
+		</TD>
+	</TR>
+	<TR VALIGN=TOP>
+		<TD WIDTH=12% STYLE="border-top: none; border-bottom: 1px solid #000000; border-left: 1px solid #000000; border-right: none; padding-top: 0cm; padding-bottom: 0.1cm; padding-left: 0.1cm; padding-right: 0cm">
+			<P CLASS="western"><BR>
+			</P>
+		</TD>
+		<TD WIDTH=16% STYLE="border-top: none; border-bottom: 1px solid #000000; border-left: 1px solid #000000; border-right: none; padding-top: 0cm; padding-bottom: 0.1cm; padding-left: 0.1cm; padding-right: 0cm">
+			<P CLASS="western">intelligent timeout when opening new file</P>
+		</TD>
+		<TD WIDTH=73% STYLE="border-top: none; border-bottom: 1px solid #000000; border-left: 1px solid #000000; border-right: 1px solid #000000; padding-top: 0cm; padding-bottom: 0.1cm; padding-left: 0.1cm; padding-right: 0.1cm">
+			<P CLASS="western">in [[ Player::Audacity ]]</P>
+			<P CLASS="western">Situation:</P>
+			<P CLASS="western">When opening a file in audacity, the sub
+			Player::Audacity-&gt;startProcess waits for an Audacity window
+			(named either <B>Audacity</B> <SPAN STYLE="font-weight: normal">or
+			named after the file that's being opened). It gives up after
+			30sec. This creates errors if the load command takes longer than
+			30sec. (for example when opening an .avi).</SPAN></P>
+		</TD>
+	</TR>
+	<TR VALIGN=TOP>
+		<TD WIDTH=12% STYLE="border-top: none; border-bottom: 1px solid #000000; border-left: 1px solid #000000; border-right: none; padding-top: 0cm; padding-bottom: 0.1cm; padding-left: 0.1cm; padding-right: 0cm">
+			<P CLASS="western"><BR>
+			</P>
+		</TD>
+		<TD WIDTH=16% STYLE="border-top: none; border-bottom: 1px solid #000000; border-left: 1px solid #000000; border-right: none; padding-top: 0cm; padding-bottom: 0.1cm; padding-left: 0.1cm; padding-right: 0cm">
+			<P CLASS="western">make XML::DOM dependency optional</P>
+		</TD>
+		<TD WIDTH=73% STYLE="border-top: none; border-bottom: 1px solid #000000; border-left: 1px solid #000000; border-right: 1px solid #000000; padding-top: 0cm; padding-bottom: 0.1cm; padding-left: 0.1cm; padding-right: 0.1cm">
+			<P CLASS="western">in [[ Player::VLC ]]</P>
+		</TD>
+	</TR>
+	<TR VALIGN=TOP>
+		<TD WIDTH=12% STYLE="border-top: none; border-bottom: 1px solid #000000; border-left: 1px solid #000000; border-right: none; padding-top: 0cm; padding-bottom: 0.1cm; padding-left: 0.1cm; padding-right: 0cm">
+			<P CLASS="western"><BR>
+			</P>
+		</TD>
+		<TD WIDTH=16% STYLE="border-top: none; border-bottom: 1px solid #000000; border-left: 1px solid #000000; border-right: none; padding-top: 0cm; padding-bottom: 0.1cm; padding-left: 0.1cm; padding-right: 0cm">
+			<P CLASS="western">clearer printout for stages</P>
+		</TD>
+		<TD WIDTH=73% STYLE="border-top: none; border-bottom: 1px solid #000000; border-left: 1px solid #000000; border-right: 1px solid #000000; padding-top: 0cm; padding-bottom: 0.1cm; padding-left: 0.1cm; padding-right: 0.1cm">
+			<P CLASS="western">in [[ Player::Base ]]</P>
+			<P CLASS="western">stages are shown as number - additionally print
+			legible text</P>
+		</TD>
+	</TR>
+</TABLE>
+<P CLASS="western"><BR><BR>
+</P>
+</BODY>
+</HTML>

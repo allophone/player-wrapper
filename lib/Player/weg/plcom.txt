@@ -1,0 +1,1 @@
+perl -d  e:\perl\lib\Player\vlctimedstop.pl  finalseek=507 seektime=505 to=507.815

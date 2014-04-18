@@ -1,0 +1,2 @@
+wget -O vlcout.txt 'http://d:8090/requests/status.xml?command=pl_pause'
+
