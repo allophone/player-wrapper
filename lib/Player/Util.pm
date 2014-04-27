@@ -2,13 +2,28 @@ package Player::Util;
 use strict 'vars';
 use feature ':5.10'; # loads all features available in perl 5.10
 
-# delegate to modules that aren't part of the project DH::Serve
 use Flex;
 
 use DH::ForUtil::Quickopen;
 use DH::ForUtil::CreateDir;
 use DH::ForUtil::Time;
 use DH::ForUtil::CompId;
+
+sub find_under_lib {
+  my $dir;
+  for (@INC) {
+    next if ! -e "$_/Player";
+    $dir = "$_/Player";
+    return $dir;
+  }
+}
+
+sub player_dir      { find_under_lib() }
+sub proj_dir        {
+  my @pl_parts = split '/', player_dir();
+  my @pr_parts = @pl_parts[0..$#pl_parts-2];
+  return join('/', @pr_parts);
+}
 
 sub tmpdir          { Flex::tmpdir(@_) }
 sub onWin           { goto &Flex::onWin }
@@ -92,6 +107,8 @@ sub readkey {
   return $c;
 }
 
+### simple stand-alone utilities
+
 sub slurp_to_ref { my ($file) = @_;
   return if !-e $file;
   
@@ -128,6 +145,13 @@ sub trimWhite {           my $s=$_[0];
   $s =~ s/^\s*//g;
   $s =~ s/\s*$//g;
   return $s;
+}
+
+### colors
+
+sub colormarkers { my ($arg) = @_;
+  eval 'use DH::ForUtil::Terminal';
+  goto &DH::ForUtil::Terminal::colormarkers;
 }
 
 
@@ -247,6 +271,8 @@ sub secs2tableTimes { my ($t0, $t1) = @_;
   my $dts = ss2hhmmssmmm($dt, {ndec=>4});
   return ($t0s, $dts);
 }
+
+### input parameter handling
 
 =for me
 
@@ -375,15 +401,6 @@ sub makeAbsolute { my ($file) = @_;
   return Cwd::getcwd();
 }
 
-sub playerDir { return makeAbsolute(__FILE__) }
-
-sub processPlayCommand { my ($hash) = @_;
-  fillInDefaultParams($hash);
-  adaptFilesToOS($hash);
-  eval 'use ExWord::Audio::PlaySelFromTable';
-  ExWord::Audio::PlaySelFromTable->playFromHash($hash);
-}
-
 sub modifyBaseHash { my ($basehash, $newhash) = @_;
   delete $basehash->{refocus} if exists $basehash->{refocus};
   
@@ -395,6 +412,14 @@ sub modifyBaseHash { my ($basehash, $newhash) = @_;
   return $basehash;
 }
 
+### interface to commands triggered from libreoffice
+
+sub processPlayCommand { my ($hash) = @_;
+  fillInDefaultParams($hash);
+  adaptFilesToOS($hash);
+  eval 'use ExWord::Audio::PlaySelFromTable';
+  ExWord::Audio::PlaySelFromTable->playFromHash($hash);
+}
 
 ### demo && testing
 
@@ -415,9 +440,10 @@ sub test1 {
   say "back to string: '$s'";
 }
 
-sub test2info{'show player dir'};
+sub test2info{'show player and proj dir'};
 sub test2 {
-  say "player dir=" . playerDir();
+  say "player dir=" . player_dir();
+  say "proj   dir=" . proj_dir();
 }
 
 use DH::Testkit;

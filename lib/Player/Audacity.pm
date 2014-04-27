@@ -51,7 +51,7 @@ sub DESTORY { my ($self) = @_;
 
 ### accessors
 
-sub verbose { $_[0]->{verbose} }
+sub aud_noZoomSel   { $_[0]->{aud_noZoomSel} }
 
 ## definition of communication channel
 sub aud_toSrvName   { $_[0]->{aud_toSrvName} }
@@ -74,7 +74,7 @@ sub aud_startTiming{ my ($self) = @_;
 
 sub aud_stopTiming{ my ($self) = @_;
   my $elapsed = $self->aud_timeElapsed;
-  print "[Total time for command: $elapsed seconds.]\n";
+  $self->log( "[Total time for command: $elapsed seconds.]\n" );
 }
 
 sub aud_timeElapsed { my ($self) = @_;
@@ -132,7 +132,7 @@ sub aud_sendCommand{ my ($self, $command) = @_;
       # or reads after the first one fail...
       print $toSrvFh "$command\n";
    }
-   print "[$command]\n";
+   $self->log( "[$command]\n" );
 }
 
 # Return an array of all responses
@@ -149,11 +149,11 @@ sub aud_doCommand{ my ($self, $command, $opt) = @_;
    $self->aud_sendCommand($command);
 
    my @resps = $self->aud_getResponses;
-   map { print "  $_\n"; } @resps 
+   map { $self->log("  $_\n") } @resps 
       unless $opt && $opt->{ignore_response};
 
    $self->aud_stopTiming;
-   print "\n";
+   $self->log("\n");
    return wantarray ? @resps : $resps[0];
 }
 
@@ -184,10 +184,11 @@ sub aud_getMenuCommandStatus { my ($self, $command) = @_;
   
   my $nshow = 0+@resps;
   $nshow = 4 if $nshow>4;
-  printf
+  $self->logf(
     "  Number of response lines %d - show at least %d/%d:\n" ,
-    0+@resps, $nshow, 0+@resps;
-  for ( @resps[0..$nshow-1]) { print "    $_\n"}
+    0+@resps, $nshow, 0+@resps
+  );
+  for ( @resps[0..$nshow-1]) { $self->log("    $_\n")}
 
   # search for the important line for $command
   my ($sought, $res);
@@ -200,7 +201,7 @@ sub aud_getMenuCommandStatus { my ($self, $command) = @_;
 
   # if it was found, also show it
   if (defined $sought) {
-    for ('...', $sought) { print "    $_\n"}
+    for ('...', $sought) { $self->log("    $_\n")}
   }
 
   $self->aud_stopTiming;
@@ -266,7 +267,7 @@ sub aud_getMenuCommands{ my ($self) = @_;
 sub aud_showMenuStatus{ my ($self) = @_;
   $self->aud_sendCommand("GetAllMenuCommands: ShowStatus=1");
   my @resps = $self->aud_getResponses;
-  map { print "$_\n"; } @resps;
+  map { $self->log( "$_\n" ) } @resps;
 }
 
 ### computed player behaviour
@@ -310,7 +311,7 @@ sub aud_newWindowForFile { my ($self, $file) = @_;
   $self->storeRefocus;
 
   my $wait = int( (-s $file)/(100e6) );
-  printf "Waiting $wait sec for Import command to finish.\n\n";
+  $self->log("Waiting $wait sec for Import command to finish.\n\n");
 
   # The response to this command might take a while to arrive.
   # Keep polling
@@ -318,18 +319,18 @@ sub aud_newWindowForFile { my ($self, $file) = @_;
     my @resp = $self->aud_getResponses;
 
     my $elapsed = $self->aud_timeElapsed;
-    printf "%s sec since Import command.\n", $elapsed;
+    $self->logf("%s sec since Import command.\n", $elapsed);
 
     if (!@resp) {
-      print "No response yet to Import command.\n";
+      $self->log("No response yet to Import command.\n");
     }
     else {
-      print "Received response:\n";
+      $self->log("Received response:\n");
       foreach (@resp,) {
-        print "  $_\n";
+        $self->log("  $_\n");
       }
     }
-    print "\n";
+    $self->log("\n");
     
     last if $resp[-1] && $resp[-1]=~m{Import\s+finished:\s+OK\s*$};
     last if $elapsed>$wait;
@@ -338,15 +339,15 @@ sub aud_newWindowForFile { my ($self, $file) = @_;
 
   $wait = 1;
   while (1) {
-    print "\nQuery Name and EndTime to check import okay:\n\n";
+    $self->log("\nQuery Name and EndTime to check import okay:\n\n");
     
     foreach my $f (qw(Name EndTime)) {
       $self->aud_getTrackInfoItem(0,$f);
-      print "\n";
+      $self->log("\n");
     }
     
     last if --$wait <= 0;
-    print "rem time= $wait\n";
+    $self->log("rem time= $wait\n");
     sleep(1);
   }
 
@@ -365,6 +366,16 @@ sub aud_newWindowForFile { my ($self, $file) = @_;
 }
 
 ### play state management for current file
+
+sub seek { my ($self, $t0) = @_;
+  my @trackRange = $self->aud_standardTrackRange;
+  $self->aud_selectRegion(\@trackRange, $t0, $t0);
+}
+
+sub position { my ($self) = @_;
+  my @sel = $self->aud_getSelection;
+  return $sel[0];
+}
 
 ## layer 2 commands: based on layer 1
 # Select part of a track range
@@ -401,9 +412,9 @@ sub aud_getTrackInfoItem{  my ($self, $trackID, $type) = @_;
     if (      $type eq 'EndTime' 
           && (!defined $val || $val =~ /[^\d\.]/) 
     ) {
-      printf "Invalid response (len=%d):\n", 0+@resp;
-      for (@resp) {print "$_\n"}
-      print "\n";
+      $self->logf("Invalid response (len=%d):\n", 0+@resp);
+      for (@resp) {$self->log("$_\n")}
+      $self->log("\n");
       next;
     }
     last;
@@ -447,7 +458,7 @@ sub playRange { my ($self, $t0, $t1) = @_;
   my @trackRange = $self->aud_standardTrackRange;
   my $res = $self->aud_selectRegion(\@trackRange, $t0, $t1);
 
-  $self->aud_menuCommand('ZoomSel');
+  $self->aud_menuCommand('ZoomSel') unless $self->aud_noZoomSel;
   my $ok = $self->aud_menuCommandWithCheck('PlayStop');
   $self->aud_menuCommand('FitV');
   return $ok;
@@ -492,7 +503,7 @@ sub aud_getLabelsFromSavedProject { my ($self, $projFile) = @_;
     )
     {
       push @ranges, 
-        sprintf "%16.7f %16.7f", $1, $2;
+        sprintf "%16.8f %16.8f", $1, $2;
     }
   }
   return wantarray ? @ranges : \@ranges;
@@ -516,39 +527,42 @@ sub aud_saveProjectFirstTime { my ($self, $file) = @_;
   
   my $name = $win->title;
   my $title = qq{^Save Project.*"$name".*As};
-  printf "Wait for window: '%s'\n", $title;
+  $self->log("\n");
+  $self->logf("Wait for window: '%s'\n\n", $title);
   my $dialog = DH::GuiWin->wait_for_window(
     $title ,
-    {maxwait=>5, viewable=>1, verbose=>1} ,
+    {maxwait=>5, viewable=>1, verbose=>1, output_fh=>$self->logFh} ,
   );
   
   my $delay = 0.3;
   return if !$dialog;
   
-  $dialog->sendto("^(n)");
+  my $opt = { output_fh => $self->logFh };
+  
+  $dialog->sendto("^(n)", $opt);
   DH::ForUtil::Time::sleep($delay);
 
-  $dialog->sendto("^(a)");
+  $dialog->sendto("^(a)", $opt);
   DH::ForUtil::Time::sleep($delay);
 
-  $dialog->sendto($file);
+  $dialog->sendto($file, $opt);
   DH::ForUtil::Time::sleep($delay);
 
-  $dialog->sendto('~');
+  $dialog->sendto('~', $opt);
 
-  print
+  $self->log(
     "\n",
     "All keystrokes for saving project file sent.\n",
     "Wait 1 more sec before retrieving response to Save command.\n" ,
     "\n",
-  ;
+  );
   sleep(1); 
  
   $self->aud_startTiming;
 
-  print "[Retrieving response...]\n";
+  $self->log("[Retrieving response...]\n");
   my @resp = $self->aud_getResponses;
-  foreach (@resp) { print "  $_\n"; }
+  foreach (@resp) { $self->log("  $_\n") }
   $self->aud_stopTiming;
   
   return 1;
@@ -560,21 +574,23 @@ sub aud_saveProject { my ($self, $file) = @_;
   if (! -e $file ) {
     my $ok = $self->aud_saveProjectFirstTime;
     if (!$ok) {
-      print "Failed to save project. Give up.\n";
+      $self->log("Failed to save project. Give up.\n");
       return;
     }
   
     if (! -e $file) {
-      print "Project file still missing after saveProjectFirstTime. Give up.\n";
+      $self->log("Project file still missing after saveProjectFirstTime. Give up.\n");
       return;
     }
   }
   
   my $status = $self->aud_getMenuCommandStatus('Save');
   if (!$status || $status ne 'Enabled') {
-    print "\n";
-    printf "Status of menu command 'Save': %s\n", ($status//'<undef>');
-    printf "Assume there was nothing to save\n";;
+    $self->log("\n");
+    $self->logf(
+      "Status of menu command 'Save': %s\n", ($status//'<undef>')
+    );
+    $self->log("Assume there was nothing to save\n");
     return 1;
   }
   
@@ -586,14 +602,14 @@ sub aud_saveProject { my ($self, $file) = @_;
   $atime0 //= $mtime0;
   utime $atime0, $mtime0, $file;
   
-  printf "mtime for '$file' before Save: %18.6f\n", $mtime0;
+  $self->logf("mtime for '$file' before Save: %18.6f\n", $mtime0);
   
   # save project to file
   #my $projFile = $self->aud_projectFile($file);
   
   my $resp = $self->aud_menuCommand('Save');
   if ($resp =~ /failed/i) {
-    print "'Save' failed: $resp\n";
+    $self->log("'Save' failed: $resp\n");
     return;
   }
   
@@ -614,14 +630,14 @@ sub aud_saveProject { my ($self, $file) = @_;
   #}
 
   if (! -e $file) {
-    print "project '$file' not found\n";
+    $self->log("project '$file' not found\n");
     return;
   }
 
   # wait for file to change
   for (my $i=0; $i<100; $i++) {
     my $mtime = $^T - 86400*(-M $file);
-    printf "mtime for '$file' after Save: %18.6f\n", $mtime;
+    $self->logf("mtime for '$file' after Save: %18.6f\n", $mtime);
     
     last if $mtime > $mtime0;
     DH::ForUtil::Time::sleep(0.1);
@@ -644,7 +660,9 @@ sub aud_enableSaveCommand { my ($self, $opt) = @_;
   for (my $i=0; $i<10; $i++) {
     $status = $self->aud_getMenuCommandStatus('Save');
     last if $status && $status eq 'Enabled';
-    printf "Status of 'Save' command: %s\n", ($status//'<undef>');
+    $self->logf(
+      "Status of 'Save' command: %s\n", ($status//'<undef>')
+    );
     $self->aud_activeItemToForeground;
     DH::ForUtil::Time::sleep(0.01);
   }
@@ -685,20 +703,22 @@ sub aud_getSelection { my ($self, $opt) = @_;
     next if ($bfHash->{$s}//0) >= ($afHash->{$s}//0);
     push @new, $s;
   }
-  return $new[0];
+  my $s = $new[0];
+  return () if !$s;
+  
+  # Format of $s is like '   1.12345678    2.12345678'
+  $s =~ s{^\s+}{};
+  return split /\s+/, $s;
 }
 
 sub aud_getSelectionFormatted { my ($self, $opt) = @_;
-  my $sel = $self->aud_getSelection($opt);
-  if ($sel) {
-    #print "sel=$sel\n";
-    $sel = Player::Util::trimWhite($sel);
-    my ($t1, $t2) = split /\s+/, $sel;
-    my ($t0s, $dts) = Player::Util::secs2tableTimes($t1, $t2);
+  my @sel = $self->aud_getSelection($opt);
+  if (@sel) {
+    my ($t0s, $dts) = Player::Util::secs2tableTimes(@sel);
     return ($t0s, "[$dts]");
   }
   else {
-    print "Failed to retrieve selection\n";
+    $self->log("Failed to retrieve selection\n");
     return ();
   }
 }
@@ -806,19 +826,22 @@ sub startProcess { my ($self, $par) = @_;
  
   my $com = "'" . exeFile() . "'";
   $com .= " '$fileForCommandLine'" if $fileForCommandLine;
-  print "\nExecuting Command:\n  $com\n";
+  $self->log("Executing Command:\n  $com\n");
   `$com`;
 
+  $self->log("\n");
   my $title = 'Module Loader';
-  print "\nWaiting for window: $title\n";
+  $self->log("Waiting for window: $title\n\n");
   my $moduleWindow = DH::GuiWin->wait_for_window(
     "^${title}\$" ,
-    {maxwait=>10, viewable=>1, verbose=>1} ,
+    {maxwait=>10, viewable=>1, verbose=>1, output_fh=>$self->logFh} ,
   );
+
+  my $opt = { output_fh => $self->logFh };
 
   if ($moduleWindow) {
     $title = $moduleWindow->title;
-    DH::Sendkeys::sendto($title, "\n");
+    DH::Sendkeys::sendto($title, "\n", $opt);
   }
 
   my $label;
@@ -834,16 +857,25 @@ sub startProcess { my ($self, $par) = @_;
     $title = 'Audacity';
   }
 
-  print "\nWaiting for window: $title\n";
+  $self->log("\n");
+  $self->log("Waiting for window: $title\n\n");
   my $audWindow = DH::GuiWin->wait_for_window(
     "^${title}\$" ,
-    {maxwait=>30, viewable=>1, verbose=>1} ,
+    {maxwait=>30, viewable=>1, verbose=>1, output_fh=>$self->logFh} ,
   );
+  $self->log("\n");
 
   # if import succeeded make sure stale project file is removed
   $self->aud_removeProjectFile($label);
 
   return $audWindow ? 1 : undef;
+}
+
+sub endProcess { my ($self) = @_;
+  sleep(1);
+
+  $self->aud_saveProject;
+  $self->aud_menuCommand('Exit');
 }
 
 ## connect to process
@@ -901,7 +933,7 @@ sub playRangeForFile { my ($self, $file, $t0, $t1, $opt) = @_;
 
   if (!$ok) {
     my $file = $self->targetFile // '<undef>';
-    print "Failed to activate file '$file' - give up!\n";
+    $self->log("Failed to activate file '$file' - give up!\n");
     return;
   }
   
@@ -923,7 +955,7 @@ sub aud_activeItemWindow { my ($self) = @_;
   my $name = $self->currentlyActiveShortLabel;
   
   if (!$name) {
-    print "No current window - don't activate\n";
+    $self->log("No current window - don't activate\n");
     return;
   }
 
@@ -932,7 +964,7 @@ sub aud_activeItemWindow { my ($self) = @_;
     $win
       ? 'Found window named '.$name
       : 'Did NOT find window named '.$name;
-  print "$res\n";
+  $self->log("$res\n");
   
   return $win;
 }
@@ -960,13 +992,21 @@ sub checkForProcess { my ($class, $regex) = @_;
   }
 }
 
+### window management
+
+sub activeWindowRegex { my ($self) = @_;
+  # In Audacity active file has title equal to short label
+  my $curlabel = $self->currentlyActiveShortLabel;
+  return qr{^\Q$curlabel\E$};
+}
+
 ### utilities that are currently not needed
 
 sub activateFile { my ($self, $file) = @_;
   my $label     = $self->shortLabelFromFile($file);
   my $curLabel  = $self->currentlyActiveShortLabel;
-  print "label    = $label\n";
-  print "curlabel = $curLabel\n";
+  $self->log("label    = $label\n");
+  $self->log("curlabel = $curLabel\n");
   return if $label eq $curLabel;
 }
 
@@ -996,6 +1036,7 @@ sub windowTitle { my ($self) = @_;
 sub demoFile {
   my $file;
   $file = 'F:/phonmedia/FilmAudio/MoodLove.wav';
+  $file = 'E:/perl/proj/player-wrapper/samples/det_count.wav';
   $file = Player::Util::flexname($file);
 }
 

@@ -82,10 +82,11 @@ sub getUrl { my ($self, $url) = @_;
   $ua->env_proxy;
   $ua->default_header('Authorization' => $auth_key);
   my $response = $ua->get($url);
- if (!$response->is_success) {
-   printf "Retrieving url '%s' failed with status '%s'!\n",
-    $url,
-    $response->status_line;
+  if (!$response->is_success) {
+    $self->logf( "Retrieving url '%s' failed with status '%s'!\n",
+      $url,
+      $response->status_line
+    )
   }
   return $response->decoded_content;
 }
@@ -205,13 +206,14 @@ Response to /requests/playlist.xml looks like:
     
     # loop over <leaf ... />
     while ( $leaves =~ /$re2/g ) {
-      printf "leaf:\n%s\n", $1;
       my $attrs = $1;
+      $self->log("leaf:\n");
+      $self->log("$attrs\n");
       my $r = {};
       # loop over attrs
       while ($attrs =~ /$re3/g) {
-        printf "%s->%s\n", $1, $2;
         $r->{$1} = $2;
+        $self->logf( "%s->%s\n", $1, $2 );
       }
       # item is labeled by uri (without 'file://'), i.e. the filename
       my $uri   = $r->{uri}//'';
@@ -436,15 +438,15 @@ sub vlc_waitForState { my ($self, $target_state, $intro, $opt) = @_;
   
   $intro ||= "Waiting for state '$target_state'\n";
   (undef, undef, my $line) = caller;
-  printf "%s (line %d)\n", $intro, $line;
+  $self->logf( "%s (line %d)\n", $intro, $line );
 
   my $wait = $opt->{timeout} || 10;
   while ($wait-- > 0) {
     my $status = $self->vlc_status;
 
-    printf "%2d: %s\n", $wait, $self->vlc_statusLine;
+    $self->logf( "%2d: %s\n", $wait, $self->vlc_statusLine );
     if ($status->{state} =~ /$re/) { 
-      print "Success\n";
+      $self->log( "Success\n" );
       return 1; 
     }
     sleep(1);
@@ -452,7 +454,7 @@ sub vlc_waitForState { my ($self, $target_state, $intro, $opt) = @_;
     # refresh info
     $self->vlc_command;
   }
-  print "Timeout.\n";
+  $self->log( "Timeout.\n" );
   return undef;
 }
 
@@ -465,7 +467,7 @@ sub vlc_waitForActiveLabelAndLength { my ($self, $label, $intro, $opt) = @_;
   
   $intro ||= "Waiting for label '$label'\n";
   (undef, undef, my $line) = caller;
-  printf "%s (line %d)\n", $intro, $line;
+  $self->logf( "%s (line %d)\n", $intro, $line );
 
   my $wait = $opt->{timeout} || 10;
   while ($wait-- > 0) {
@@ -474,13 +476,13 @@ sub vlc_waitForActiveLabelAndLength { my ($self, $label, $intro, $opt) = @_;
     
     my $ok = defined $status;
     my $length   = ($ok && $self->vlc_status->{length})//0;
-    printf "%2d: %s\n", $wait, $self->vlc_statusLine;
+    $self->logf( "%2d: %s\n", $wait, $self->vlc_statusLine );
     
     $ok   &&= $curLabel =~ /$re/;
     $ok   &&= $length>0;
     
     if ($ok) {
-      print "Success\n";
+      $self->log( "Success\n" );
       return 1; 
     }
     sleep(1);
@@ -488,7 +490,7 @@ sub vlc_waitForActiveLabelAndLength { my ($self, $label, $intro, $opt) = @_;
     # refresh info
     $self->update;
   }
-  print "Timeout.\n";
+  $self->log( "Timeout.\n" );
   return undef;
 }
 
@@ -527,8 +529,18 @@ sub vlc_inPlay { my ($self, $mrl) = @_;
 sub togglePause { $_[0]->vlc_command('pl_pause') }
 sub stop        { $_[0]->vlc_command('pl_stop' ) }
 sub seek        { my ($self, $val) = @_;
-  $self->vlc_command('seek', {val=>time_in_sec($val)});
+  $val = int(time_in_sec($val));
+  $self->vlc_command('seek', {val=>$val});
 }
+sub position { shift->vlc_position }
+sub length   { my ($self) = @_;
+  my $status = $self->vlc_status;
+  return $status && $status->{length};
+}
+
+# seekable positions close to $_[1] (in secs.)
+sub previousSeekable { int( $_[1]     ) }
+sub nearestSeekable  { int( $_[1]+0.5 ) }
 
 ## layer 3 commands: based on layer 1 and 2
 sub ensurePaused { my ($self) = @_;
@@ -554,9 +566,9 @@ sub ensurePaused { my ($self) = @_;
   }
 
   if ($state eq 'playing') {
-    print "State 'playing' found. Pausing before seek.\n";
+    $self->log( "State 'playing' found. Pausing before seek.\n" );
     $self->togglePause;
-    print $self->vlc_statusLine,"\n";
+    $self->log( $self->vlc_statusLine."\n" );
     $state = $self->vlc_state;
   }
 }
@@ -571,7 +583,7 @@ sub vlc_timedStopInProcess { my ($self, $t1, $opt) = @_;
   my $s    = Player::Util::paramStringFromHash($hash);
   
   # get script
-  my $dir  = Player::Util::playerDir();
+  my $dir  = Player::Util::player_dir();
   my $scr  = "$dir/command_scripts/vlctimedstop.pl";
   $scr =~ s{/}{\\}g if Flex::onWin();
   
@@ -580,7 +592,7 @@ sub vlc_timedStopInProcess { my ($self, $t1, $opt) = @_;
       ? "perl $scr '$s' \&"
       : "perl $scr '$s'";
 
-  print "Run command: '$com'\n";
+  $self->log( "Run command: '$com'\n" );
   system($com);
 }
 
@@ -593,13 +605,13 @@ sub vlc_timedStop { my ($self, $t1, $opt) = @_;
   my $reported_t0 = $self->vlc_position;
   my $t0          = $opt->{seektime} // $reported_t0;
 
-  print "\n";
+  $self->log( "\n" );
   my $fmt = "%6s:%12s\n";
-  print   "Play interval:\n";
-  printf $fmt, 'From', Player::Util::ss2hhmmssmmm($t0);
-  printf $fmt, 'To'  , Player::Util::ss2hhmmssmmm($t1);
-  printf $fmt, 'dt'  , Player::Util::ss2hhmmssmmm($t1-$t0) ;
-  print "\n";
+  $self->log(   "Play interval:\n" );
+  $self->logf( $fmt, 'From', Player::Util::ss2hhmmssmmm($t0) );
+  $self->logf( $fmt, 'To'  , Player::Util::ss2hhmmssmmm($t1) );
+  $self->logf( $fmt, 'dt'  , Player::Util::ss2hhmmssmmm($t1-$t0) );
+  $self->log( "\n" );
   
   # with $vlc_position I can get the current time with fractional
   # part, but it's imprecise, because it's based on the total
@@ -608,13 +620,17 @@ sub vlc_timedStop { my ($self, $t1, $opt) = @_;
   # know the current time now and I can use it to compute a correction
   
   my $corr = $t0 - $reported_t0;
-  printf $fmt, 't0-rep' , Player::Util::ss2hhmmssmmm($reported_t0);
-  printf $fmt, 'Corr'   , Player::Util::ss2hhmmssmmm($corr) ;
-  print "\n";
+  $self->logf(
+    $fmt, 't0-rep' , Player::Util::ss2hhmmssmmm($reported_t0)
+  );
+  $self->logf(
+    $fmt, 'Corr'   , Player::Util::ss2hhmmssmmm($corr)
+  );
+  $self->log( "\n" ); 
   
   # However, it seems to stop a bit earlier than the required time
   # Workaround: Allow an excess
-  my $excess = 0.3;
+  my $excess = 0.0;
 
   my ($prevtime, $done, $time);
   $prevtime = -1;
@@ -624,7 +640,7 @@ sub vlc_timedStop { my ($self, $t1, $opt) = @_;
     my $state  = $status->{state};
 
     if ( ($state//'') ne 'playing' ) {
-      print "State no longer 'playing' - exit playback loop\n";
+      $self->log( "State no longer 'playing' - exit playback loop\n" );
       last;
     }
     $time = $self->vlc_position;
@@ -635,7 +651,9 @@ sub vlc_timedStop { my ($self, $t1, $opt) = @_;
       my $timestr = Player::Util::ss2mmssmmm($time);
       # show status if time of status has changed
       my $line = $self->vlc_statusLine($status);
-      printf "%s t=%s left: %8.3f\n", $line, $timestr, $t1-$time;
+      $self->logf( "%s t=%s left: %8.3f\n",
+        $line, $timestr, $t1-$time
+      );
     }
     
     # done when time exceeds end time
@@ -644,7 +662,7 @@ sub vlc_timedStop { my ($self, $t1, $opt) = @_;
     # check whether key was pressed and stop if it was
     my $c = $opt->{allow_interrupt} && Player::Util::readkey();
     if ($c) {
-      printf "'%s' pressed - stop playing\n",$c;
+      $self->log( "'$c' pressed - stop playing\n" );
       $done = 1;
     }
 
@@ -662,12 +680,12 @@ sub vlc_timedStop { my ($self, $t1, $opt) = @_;
     my $finalseek = $opt->{finalseek};
     $self->seek($finalseek) if defined $finalseek;
   }
-  print "play interval ended\n";
+  $self->log( "play interval ended\n" );
 }
 
-sub playRange { my ($self, $t0, $t1) = @_;
+sub playRange { my ($self, $t0, $t1, $opt) = @_;
   
-  printf STDERR "play %8.3f-%8.3f\n", $t0, $t1;
+  $self->logf( "play [%.3f,%.3f]\n", $t0, $t1 );
 
   my ($status, $state);
   
@@ -686,7 +704,7 @@ sub playRange { my ($self, $t0, $t1) = @_;
               );
               
     if (!$ok) {
-      print "Failed to start current file\n";
+      $self->log( "Failed to start current file\n" );
       return;
     }
     
@@ -700,7 +718,10 @@ sub playRange { my ($self, $t0, $t1) = @_;
   $status     = $self->vlc_status;
   my $length  = $status->{length};
   if ($t0>$length) {
-    printf "Start time exceeds length (%d sec) - ignored\n",$length;
+    $self->logf(
+      "Start time exceeds length (%d sec) - ignored\n",
+      $length
+    );
   }
   else {
     $self->seek($t0);
@@ -718,14 +739,16 @@ sub playRange { my ($self, $t0, $t1) = @_;
   # provide the time of last seek for better accuracy
   
   if ($t1>$t0) {
-
-    # afterwards seek to the middle of the interval
-    my $finalseek = int( ($t0was+$t1+0.5)/2 );
-    my $opt={seektime=>$t0, finalseek=>$finalseek};
+    my $finalseek = $self->videoFinalSeekTime($t0was, $t1);
+    my $opt1={
+      seektime  => $t0, 
+      (defined $finalseek ? (finalseek=>$finalseek) : ()) ,
+    };
     
-    Flex::onWin()
-      ? $self->vlc_timedStop($t1, {%$opt, allow_interrupt=>1})
-      : $self->vlc_timedStopInProcess($t1, $opt);
+    my $same_process = Flex::onWin() || $opt->{same_process};
+    $same_process
+      ? $self->vlc_timedStop($t1, {%$opt1, allow_interrupt=>1})
+      : $self->vlc_timedStopInProcess($t1, $opt1);
   }
   return 1;
 }
@@ -778,6 +801,16 @@ sub stageFromLabelRequest { my ($self) = @_;
 
 ## establish process
 
+sub vlc_pidForCommand { my ($self, $com) = @_;
+  eval 'use Proc::ProcessTable';
+  my $ptab = Proc::ProcessTable->new;
+  $com =~ s{\s{2,}}{ }g;
+  for my $p (@{$ptab->table}) {
+    next if $p->cmndline ne $com;
+    return $p->pid;
+  }
+}
+
 sub exeFile { goto &Player::Util::vlc_exe }
 
 sub startProcess { my ($self, $par) = @_;
@@ -796,31 +829,39 @@ sub startProcess { my ($self, $par) = @_;
     $nohup1 = ">/tmp/nohup_vlc_${host}_${port}";
     $amp   = " \&";
   }
-  my $com = 
-    "$nohup0$exe $hostport --extraintf http";
-    if ($file) {
-      $com .= " '$file'";
-    }
-    
-    $com .= " $nohup1$amp";
+  
+  my $com0 = "$exe $hostport --extraintf http";
+  $com0 .= " '$file'" if $file;
 
-  print "Executing '$com'\n";
+  # some decoration around $com0 to decouple process from this script
+  my $com = "$nohup0$com0$nohup1$amp";
+    
+  $self->log( "Executing '$com'\n" );
   system($com);
+  
+  my $pid = $self->{playerPID} = $self->vlc_pidForCommand($com0);
+  $self->log("Created vlc process with pid=$pid\n");
   
   my $wait = 30;
   my $success;
   while (! ($success=$self->acceptsCommand) ) {
     if ($wait-- < 1) {last;}
-    printf "vlc not running. Waiting %d more seconds...\n" , $wait;
+    $self->logf(
+      "vlc not running. Waiting %d more seconds...\n" , 
+      $wait
+    );
     sleep(1);
   }
   
   # wait 1 more sec for vlc to become usable
-  # (if two fast, it will open player in separate window)
+  # (if too fast, it will open player in separate window)
   sleep(1);
+  #$self->ensurePaused;
   
   return $success;
 }
+
+sub endProcess { $_[0]->killPlayer }
 
 ## connect to process
 sub connectToProcess {1} # nothing to do in VLC, always succeeds
@@ -834,6 +875,9 @@ sub activateNonConnectedFile { my ($self, $file) = @_;
   return if ! -e $file;
 
   my $label = $self->shortLabelFromFile($file);
+  
+  # Possible transform the file to an equivalent
+  # (for example path on a remote machine)
   my $remote_path_sub = $self->remote_path_sub;
   if ($remote_path_sub) {
     $file = $remote_path_sub->($file);
@@ -920,7 +964,7 @@ sub playRangeForFile { my ($self, $file, $t0, $t1, $opt) = @_;
   my $ok = $self->prepareForFile({upto=>3});
   
   if (!$ok) {
-    print "Couldn't communicate with VLC - give up!\n";
+    $self->log( "Couldn't communicate with VLC - give up!\n" );
     return;
   }
   
@@ -936,7 +980,7 @@ sub playRangeForFile { my ($self, $file, $t0, $t1, $opt) = @_;
 
   if (!$ok) {
     my $file = $self->targetFile;
-    print "Failed to activate file '$file' - give up!\n";
+    $self->log( "Failed to activate file '$file' - give up!\n" );
     return;
   }
 
@@ -951,8 +995,6 @@ sub playRangeForFile { my ($self, $file, $t0, $t1, $opt) = @_;
 
 sub string2dom { my ($class, $s) = @_;
   my $sref = ref $s eq 'SCALAR' ? $s : \$s;
-use Carp;
-  print STDERR Carp::longmess();
   
   Player::Util::load_on_demand('XML::DOM');
   Player::Util::load_on_demand('XML::DOM::XPath');
@@ -979,6 +1021,15 @@ sub encodeURIComponent { my ($s) = @_;
   return $s;
 }
 
+### window management
+
+sub activeWindowRegex { my ($self) = @_;
+  # In VLC active file has title equal to short label
+  # followed by ' - VLC media player'
+  my $curlabel = $self->currentlyActiveShortLabel;
+  return qr{^\Q$curlabel\E\s+.\s+VLC\s+media\s+player$};
+}
+
 ### utilities that are currently not needed
 
 sub vlc_recOfConnectedFile { my ($self, $file) = @_;
@@ -990,8 +1041,8 @@ sub activateFile { my ($self, $file) = @_;
   # first check whether file is active already
   my $label     = $self->shortLabelFromFile($file) // '<undef>';
   my $curLabel  = $self->currentlyActiveShortLabel // '<undef>';
-  printf "label    = %s\n", $label;
-  printf "curlabel = %s\n", $curLabel;
+  $self->logf( "label    = %s\n", $label      );
+  $self->logf( "curlabel = %s\n", $curLabel   );
   return 1 if $label eq $curLabel;
 
   # then try activating file in playlist
@@ -1011,8 +1062,11 @@ sub demoFile {
   my $file;
   $file = 'F:/phonmedia/FilmAudio/lanyu.avi';
   $file = 'F:/phon/chn_au/shawn5a.wav';
+  $file = 'E:/perl/proj/player-wrapper/samples/det_countvid.avi';
   $file = Player::Util::flexname($file);
 }
+
+sub demoRange { (1,3) }
 
 sub testreqs {
   my @mods = qw(Data::Dumper);

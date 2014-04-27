@@ -6,6 +6,7 @@ use utf8; # → ju:z ju: tʰi: ɛf eɪt!
 
 use Player::Util;
 use File::Basename ();
+use Time::HiRes qw( gettimeofday tv_interval );
 
 ### constructor
 
@@ -19,14 +20,22 @@ sub new { my ($self) = shift @_;
   }
   my $class = ref $self || $self;
   $self = bless {%$par}, $class;
+  $self->{tConstr} = [gettimeofday];
   $self->build($par);
 }
 
 ### accessors
 
-sub verbose { $_[0]->{verbose} }
+sub verbose         { $_[0]->{verbose}  }
+sub t0              { $_[0]->{t0}       }
+sub logFh           { $_[0]->{logFh}    }
+sub logFile         { $_[0]->{logFile}  }
+sub tConstr         { $_[0]->{tConstr}  }
+sub playerPID       { $_[0]->{playerPID}}
+sub videoFinalSeek  { $_[0]->{videoFinalSeek} }
 
-sub t0      { $_[0]->{t0} }
+# all-purpose hash, also for module users
+sub extra           { $_[0]->{extra}//={}}
 
 ## params valid during single command execution
 sub stage             { $_[0]->{stage} }
@@ -38,6 +47,18 @@ sub targetLabel       { $_[0]->{targetLabel} }
 sub refocusChoice    { $_[0]->{refocusChoice} }
 sub refocusWin       { $_[0]->{refocusWin} }
 sub refocusNeeded    { $_[0]->{refocusNeeded} }
+
+### timing
+
+sub tSinceConstr { my ($self) = @_;
+  my $t0      = $self->{tConstr};
+  return tv_interval ( $t0, [gettimeofday] );
+}
+
+sub tSinceConstr_mmssmmm { my ($self) = @_;
+  my $dt = $self->tSinceConstr;
+  return Player::Util::ss2mmssmmm($dt);
+}
 
 ### stages
 
@@ -61,7 +82,7 @@ sub cleanupAfterCommand { my ($self, $file) = @_;
 
 sub prepareForFile { my ($self, $opt) = @_;
   my $stage = $self->{stage}//-1;
-  
+
   my $upto = $opt->{upto} // 6;
   
   # if no file to activate, maximum stage is 3
@@ -99,7 +120,7 @@ sub prepareForFile { my ($self, $opt) = @_;
     
     # try whether file is connected and activate if so
     elsif ($stage<=3) {
-      my $success = $self->activateConnectedFile;
+      my $success = $self->activateFileIfConnected;
       $stage = 
         $success 
           ? 6   # connected and active
@@ -131,11 +152,12 @@ sub prepareForFile { my ($self, $opt) = @_;
     # Failure if processing resulted in falsy $stage
     $self->{stage} = $stage;
     if (!$stage) {
-      printf "Failed preparing for file!\n";
+      $self->log("Failed preparing for file!\n");
       return;
     }
     
-    printf "Moved to stage $stage\n";
+    my $msg = $self->stage2text($stage);
+    $self->log( "Moved to stage $stage: $msg\n" );
   }
   return $stage;
 }
@@ -145,6 +167,12 @@ sub prepareForFile { my ($self, $opt) = @_;
 sub ensureCommunication { my ($self, $file) = @_;
   $self->initializeCommand($file);
   $self->prepareForFile;
+}
+
+sub killPlayer { my ($self) = @_;
+  my $pid = $self->{playerPID};
+  return if !$pid;
+  `kill -9 $pid`;
 }
 
 ### administration for optionally refocussing previous window
@@ -187,7 +215,151 @@ sub currentTerminalWin {
   return DH::GuiWin->currentTerminalWin;
 }
 
+### printing, logging
+
+sub setLogFile { my ($self, $file) = @_;
+  if (!$file) {
+    my $dir = Player::Util::tmpdir();
+    $file = "$dir/player-log.txt";
+  }
+
+  $self->{logFile} = $file;
+  open my $fh, '>', $file;
+  return $self->{logFh} = $fh;
+}
+
+sub log_with_and_wo_f {
+  my $self = shift;
+  my $opt  = shift;
+  
+  my $fmt =
+    $opt->{with_f}
+      ? shift
+      : undef;
+  
+  my $fh    = $self->logFh // \*STDOUT;
+
+  # markers for time and miscellaneous output
+  my ($tm0, $tm1, $m0, $m1) = ('')x4;
+  if (!$self->logFh) {
+    ($tm0, $tm1) = Player::Util::colormarkers(['cyan']);
+    ($m0 , $m1 ) = Player::Util::colormarkers(['blue']);
+  }
+  
+  my $dt    = $self->tSinceConstr_mmssmmm;
+
+  
+  if ($opt->{with_f}) {
+    print  $fh "$tm0$dt$tm1 ";
+    printf $fh $m0 if $m0; # start color
+    printf $fh ($fmt, @_);
+    printf $fh $m1 if $m1; # end color
+  }
+  else {
+    for (@_) {
+      # time prefix only for non-white lines
+      print $fh "$tm0$dt$tm1 " unless m{^\s*$}s;
+      print $fh "$m0$_$m1";
+    }
+  }
+  
+}
+
+sub logf { shift->log_with_and_wo_f({with_f=>1}, @_); }
+sub log  { shift->log_with_and_wo_f({with_f=>0}, @_); }
+sub logln{ shift->log_with_and_wo_f({with_f=>0}, @_, "\n"); }
+
+sub stage2text { my ($self, $stage) = @_;
+  state $lookup = {
+    -1 => 'Unknown state.' ,
+     1 => 'Player not running.' ,
+     2 => 'Player running, communication not yet established.' ,
+     3 => 'Communication ok. Unknown if file is connected.' ,
+     4 => 'Communication ok. File not yet connected.' ,
+     5 => 'Communication ok. File connected, but not active.' ,
+     6 => 'Communication ok. File is active.' ,
+  };
+  return $lookup->{$stage//-1};
+}
+
+### window management
+
+sub activeWindow { my ($self) = @_;
+  my $regex = $self->activeWindowRegex;
+  return if !$regex;
+  
+  $self->log("\n");
+  $self->log("Waiting for window: $regex\n\n");
+  my $win = DH::GuiWin->wait_for_window(
+    $regex ,
+    {maxwait=>30, viewable=>1, verbose=>1, output_fh=>$self->logFh} ,
+  );
+  $self->log("\n");
+  return $win;
+}
+
+sub moveActiveWindow { my $self = shift;
+  my $win = $self->activeWindow;
+  return if !$win;
+  $self->storeRefocus;
+  $win->movewindow(@_);
+  $self->doRefocus;
+}
+
+### dummies
+
+sub endProcess {}
+sub previousSeekable { $_[1] } # default is ident function
+sub nearestSeekable  { $_[1] } # default is ident function
+
 ### utilities
+
+sub is { my ($self, $regex) = @_;
+  return if !$regex;
+  if (!ref $regex) {
+    $regex = qr{::\Q$regex\E$};
+  }
+  return (ref $self) =~ /$regex/;
+}
+
+sub isVideoPlayer { my ($self) = @_;
+  (ref $self) =~ m{::(VLC|Mplayer)$};
+}
+
+sub isPlayingVideo { my ($self) = @_;
+  return if !$self->isVideoPlayer;
+  my $file = $self->targetFile;
+  return if !$file;
+  return if !$self->hasVideoExtension($file);
+  return 1;
+}
+
+sub hasVideoExtension { my ($self, $name) = @_;
+  my ($ext) = $name && $name =~ m{\.(\w+)$};
+  return if !$ext;
+  return $ext =~ m{^(
+      avi
+    | asf
+    | wmv
+    | mpeg
+    | mp4
+    | mkv
+  )$}ix;
+}
+
+sub videoFinalSeekTime { my ($self, $t0, $t1) = @_;
+  # only seek if video is shown
+  return if !$self->isPlayingVideo;
+  
+  # only seek if instruction for final position given
+  my $instr = $self->videoFinalSeek;
+  return if !$instr;
+  
+  # only mode implemented: center
+  if ($instr eq 'center') {
+    return $self->nearestSeekable( ($t0+$t1)/2 );
+  }
+}
 
 ### demo & testing
 sub dump { my ($self, $var) = @_;
@@ -307,10 +479,13 @@ sub test9 { my ($pkg, $argv) = @_;
   $class->testreqs;
 
   my $self = $class->new;
+  $self->{videoFinalSeek} = 'center' if $argv->[0];
 
   my $file = $self->demoFile;
   my $t0 = 506;
   my $t1 = $t0 + 5;
+  ($t0, $t1) = $self->demoRange if $self->can('demoRange');
+  
   d::dd;
   $self->playRangeForFile($file,$t0, $t1);
 }

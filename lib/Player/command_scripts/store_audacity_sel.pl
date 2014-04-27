@@ -67,7 +67,3 @@ sub init {
   printf "Selection for label='%s': '%s'\n", ($label//'<none>'), $s;
   DH::Util::quickopen($file);
   DH::Util::showquickopen();
-
-
-
-  

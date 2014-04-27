@@ -25,18 +25,7 @@ sub new { my ($self) = shift @_;
 
 ### work
 
-#sub playerDir       { dirname Flex::make_absolute_fast($0) }
-#sub playerDir       { Flex::path('E:/perl/lib/ExWord/Audio') }
-sub findUnderLib {
-  my $dir;
-  for (@INC) {
-    next if ! -e "$_/Player";
-    $dir = "$_/Player";
-    return $dir;
-  }
-}
-sub playerDir       { findUnderLib() }
-sub commandLogFile  { playerDir() . '/State/lastcom' }
+sub commandLogFile  { Player::Util::player_dir() . '/State/lastcom' }
 
 sub createCommandFile { my ($self, $strOrHash) = @_;
 

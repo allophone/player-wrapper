@@ -41,16 +41,18 @@ sub build { my ($self) = @_;
 
 sub DESTROY { my ($self) = @_;
   Player::Util::sleep(0.1);
-  print "Read responses before destroy...\n";
-  d::dd;
+  $self->log( "Read responses before destroy...\n" );
   my @resp = $self->mpl_getResponses;
-  for (@resp) { print "  $_\n";}
+  for (@resp) { $self->log("  $_\n") }
   $self->mpl_closePipes;
 }
 
 ### accessors
 
-sub verbose { $_[0]->{verbose} }
+## miscellaneous properties
+
+sub mpl_mutingMode  { defined $_[0]->{mpl_rangeVolume} }
+sub mpl_rangeVolume {         $_[0]->{mpl_rangeVolume} }
 
 ## definition of communication channel
 sub mpl_toSrvName   { $_[0]->{mpl_toSrvName} }
@@ -73,7 +75,7 @@ sub mpl_startTiming{ my ($self) = @_;
 
 sub mpl_stopTiming{ my ($self) = @_;
   my $elapsed = $self->mpl_timeElapsed;
-  print "[Total time for command: $elapsed seconds.]\n";
+  $self->log( "[Total time for command: $elapsed seconds.]\n" );
 }
 
 sub mpl_timeElapsed { my ($self) = @_;
@@ -131,7 +133,7 @@ sub mpl_sendCommand{ my ($self, $command) = @_;
       # or reads after the first one fail...
       print $toSrvFh "$command\n";
    }
-   print "[$command]\n";
+   $self->log( "[Command: $command]\n" );
 }
 
 # Return an array of all responses
@@ -144,105 +146,67 @@ sub mpl_getResponses { my ($self) = @_;
 
 # Send (and time) a command, and print responses
 sub mpl_doCommand{ my ($self, $command, $opt) = @_;
-   $self->mpl_startTiming();
-   $self->mpl_sendCommand($command);
+  # $opt->{pausing} may contain:
+  #   'pausing', 'pausing_keep' or 'pausing_toggle'
+  my $pau_prefix = $opt->{pausing} // 'pausing_keep';
+  $pau_prefix .= ' ' if defined $pau_prefix;
 
-   my @resps = $self->mpl_getResponses;
-   map { print "  $_\n"; } @resps 
-      unless $opt && $opt->{ignore_response};
+  $self->mpl_startTiming();
+  $self->mpl_sendCommand("${pau_prefix}$command");
 
-   $self->mpl_stopTiming;
-   print "\n";
-   return wantarray ? @resps : $resps[0];
+  my @resps;
+  @resps = $self->mpl_getResponses
+                  unless $opt->{no_resp};
+      
+  map { $self->log( "  $_\n" ) } @resps 
+                  unless $opt->{ignore_response};
+
+  $self->mpl_stopTiming;
+  $self->log("\n");
+  return wantarray ? @resps : $resps[0];
 }
 
-# Send a menu command
-sub mpl_menuCommand{ my ($self, $commandName, $opt) = @_;
-  $self->mpl_doCommand("MenuCommand: CommandName=$commandName", $opt);
-}
-
-# like above, but checks result and repeats after moving to foreground
-# This often seems to cure unresponsiveness by Audacity.
-sub mpl_menuCommandWithCheck { my ($self, $command) = @_;
-  my $ntry=3;
-  while ($ntry-- > 0) {
-    my ($resp) = $self->mpl_menuCommand($command);
-    
-    if ($resp && $resp!~/Failed/) {
-      return 1;
-    }
-    $self->mpl_activeItemToForeground;
-  }
+# mplayer doesn't answer at all for commands w/o return values
+# indicate this by option to avoid timeout
+sub mpl_doVoidCommand{ my ($self, $command, $opt) = @_;
+  $opt//={};
+  $self->mpl_doCommand($command, {%$opt, no_resp=>1});
 }
 
 sub update {1} # dummy
 
-sub acceptsCommand { my ($self) = @_;
-  $self->mpl_sendCommand(
-    "GetTrackInfo: Type=Name TrackIndex=0"
-  );
-  my @resp = $self->mpl_getResponses;
+# This reads values that have their own read command
+#   like: $self->mpl_doCommand('get_time_pos')
 
-  # check whether name of track 0 was found
-  # if so, store it, so the info doesn't get lost
-  if (@resp>=2) {
-    if ( ($resp[1]//'') !~ m{finished:\s+OK\s*$} ) {
-      $self->{knownActiveLabel} = $resp[1];
-    }
-  }
- 
-  # for the purpose of checking whether Audacity responds
-  # @resp>2 is enough
-  return @resp>=2;
+# See mpl_readProperty for values that are read with the general
+# 'get_property' command
+#   like: $self->mpl_doCommand('get_property time_pos')
+
+sub mpl_readValue{ my ($self, $name, $opt) = @_;
+  
+  # auto-prefix name with 'get_' if not there yet
+  $name = "get_$name" if $name !~ /^get_/;
+  
+  my @resp = $self->mpl_doCommand($name, $opt);
+  return
+    @resp && $resp[0]=~/^ANS_\w+=/
+      ? $'
+      : undef;
+}
+
+sub mpl_readProperty { my ($self, $name, $opt) = @_;
+  $self->mpl_readValue("get_property $name", $opt);
+}
+
+sub acceptsCommand { my ($self) = @_;
+  # arbitrary command to check whehter mplayer listens
+  $self->mpl_readProperty('path');
 }
 
 ### information retrieval through inner-layer command
 
 sub currentlyActiveShortLabel { my ($self) = @_;
-  my @resp = $self->mpl_doCommand('get_property path');
-  return if !@resp;
-  
-  @resp = map { /^ANS_path=/ ? $' : () } @resp;
-  
-  return if !@resp;
-  
-  return $resp[-1];
-}
-
-### various audacity-only 2nd layer commands
-
-# Get the value of a preference
-sub mpl_getPref{ my ($self, $name) = @_;
-   $self->mpl_sendCommand("GetPreference: PrefName=$name");
-   my @resps = $self->mpl_getResponses;
-   return shift(@resps);
-}
-
-# Set the value of a preference
-sub mpl_setPref{ my ($self, $name, $val) = @_;
-  $self->mpl_doCommand("SetPreference: PrefName=$name PrefValue=$val");
-}
-
-# Send a command which requests a list of all available menu commands
-sub mpl_getMenuCommands{ my ($self) = @_;
-  $self->mpl_doCommand("GetAllMenuCommands: ShowStatus=0");
-}
-
-sub mpl_showMenuStatus{ my ($self) = @_;
-  $self->mpl_sendCommand("GetAllMenuCommands: ShowStatus=1");
-  my @resps = $self->mpl_getResponses;
-  map { print "$_\n"; } @resps;
-}
-
-sub mpl_getMenuCommandStatus { my ($self, $command) = @_;
-  $self->mpl_sendCommand("GetAllMenuCommands: ShowStatus=1");
-  my @resps = $self->mpl_getResponses;
-  my $re = qr{^\Q$command\E\s+(\w+)};
-  foreach my $resp (@resps) {
-    next if $resp !~ /$re/;
-    return $1;
-  }
-  return undef;
+  $self->mpl_readProperty('path');
 }
 
 ### computed player behaviour
@@ -254,101 +218,28 @@ sub shortLabelFromFile { my ($self, $file) = @_;
   return $file;
 }
 
-### manage connected files (i.e. files with audacity window)
-
-## helpers for connecting/activating files (by GUI interaction)
-sub mpl_existingWindowForFile { my ($self, $file) = @_;
-  my ($name, $path, $ext) 
-    = File::Basename::fileparse( $file, '\..*' );
-  my $audwin = DH::GuiWin->findfirstviewablelike("\^$name\$");
-  return $audwin;
-}
-
-sub mpl_newEmptyWindow { my ($self) = @_;
-  $self->mpl_activeItemToForeground;
-  
-  my $i=0;
-  my $resp;
-  while ($i++<10) {
-    $resp = $self->mpl_menuCommand('New');
-    return 1 if $resp && $resp !~ /Failed/;
-  }
-  return;
-}
-
-sub mpl_newWindowForFile { my ($self, $file) = @_;
- 
-  #$self->mpl_menuCommand('New');
-  $self->mpl_newEmptyWindow;
-  $self->mpl_sendCommand("Import: Filename=$file");
-  $self->mpl_startTiming;
-  
-  # new window takes focus => need to restore later
-  $self->storeRefocus;
-
-  my $wait = int( (-s $file)/(100e6) );
-  printf "Waiting $wait sec for Import command to finish.\n\n";
-
-  # The response to this command might take a while to arrive.
-  # Keep polling
-  while (1) {
-    my @resp = $self->mpl_getResponses;
-
-    my $elapsed = $self->mpl_timeElapsed;
-    printf "%s sec since Import command.\n", $elapsed;
-
-    if (!@resp) {
-      print "No response yet to Import command.\n";
-    }
-    else {
-      print "Received response:\n";
-      foreach (@resp,) {
-        print "  $_\n";
-      }
-    }
-    print "\n";
-    
-    last if $resp[-1] && $resp[-1]=~m{Import\s+finished:\s+OK\s*$};
-    last if $elapsed>$wait;
-    
-  }
-  
-
-  $wait = 1;
-  while (1) {
-    print "\nQuery Name and EndTime to check import okay:\n\n";
-    
-    foreach my $f (qw(Name EndTime)) {
-      $self->mpl_getTrackInfoItem(0,$f);
-      print "\n";
-    }
-    
-    last if --$wait <= 0;
-    print "rem time= $wait\n";
-    sleep(1);
-  }
-
-  $self->mpl_menuCommand('FitV');
-  
-  # derive name of project from file
-  # to delete project file from /x
-  my ($name, $path, $suf) 
-    = File::Basename::fileparse( $file, '\..*' );
-  my $proj = "/x/$name.aup";
-  if (-e $proj) {
-    unlink $proj;
-  }
-
-  my $audWindow = $self->mpl_existingWindowForFile($file);
-  # nicer to have it in top left corner
-  $audWindow->movewindow(0,0) if $audWindow;
-
-  return $audWindow;
-}
-
 ### play state management for current file
 
-## layer 2 commands: based on layer 1
+sub togglePause { my ($self) = @_;
+  $self->mpl_doVoidCommand('pause');
+}
+
+sub seek { my ($self, $t, $opt) = @_;
+  $opt//={};
+
+  $self->mpl_doCommand(
+    "seek $t 2" ,
+    {%$opt, no_resp=>1} ,
+  );
+}
+
+sub position { my ($self, $opt) = @_;
+  $self->mpl_readValue('get_time_pos', $opt);
+}
+
+sub length { my ($self, $opt) = @_;
+  $self->mpl_readValue('get_time_length', $opt);
+}
 
 ### complete setup for activation of file
 
@@ -425,6 +316,146 @@ sub mpl_closePipes{ my ($self, $opt) = @_;
   return 1;
 }
 
+## layer 3 commands: based on layer 1 and 2
+
+sub ensurePaused { my ($self) = @_;
+  my $t = $self->mpl_readValue(
+    'get_time_pos', {pausing=>'pausing'}
+  );
+  return defined $t;
+}
+
+sub vlc_timedStopInProcess { my ($self, $t1, $opt) = @_;
+  # compute argument string
+  my $hash = {%$opt, to=>$t1};
+  for (qw(host port)) {
+    my $val = $self->$_;
+    $hash->{$_} = $val if $val;
+  }
+  my $s    = Player::Util::paramStringFromHash($hash);
+  
+  # get script
+  my $dir  = Player::Util::player_dir();
+  my $scr  = "$dir/command_scripts/vlctimedstop.pl";
+  $scr =~ s{/}{\\}g if Flex::onWin();
+  
+  my $com =
+    !Flex::onWin()
+      ? "perl $scr '$s' \&"
+      : "perl $scr '$s'";
+
+  $self->log( "Run command: '$com'\n" );
+  system($com);
+}
+
+sub mpl_timedStop { my ($self, $t1, $opt) = @_;
+
+  my $t0          = $opt->{seektime};
+
+  $self->log( "\n" );
+  my $fmt = "%6s:%12s\n";
+  $self->log(   "Timed stop started:\n" );
+  $self->logf( $fmt, 'From', Player::Util::ss2hhmmssmmm($t0) );
+  $self->logf( $fmt, 'To'  , Player::Util::ss2hhmmssmmm($t1) );
+  $self->logf( $fmt, 'dt'  , Player::Util::ss2hhmmssmmm($t1-$t0) );
+  $self->log( "\n" );
+  
+  my ($time);
+  my $t0clock = [gettimeofday];
+  
+  while (1) {
+    $time = $t0 + tv_interval($t0clock,[gettimeofday]);
+    my $remaining = $t1-$time;
+    
+    my $timestr = Player::Util::ss2mmssmmm($time);
+    # show status if time of status has changed
+    my $line = 'mplayer running';
+    $self->logf( "%s t=%s left: %8.3f\n",
+      $line, $timestr, $remaining
+    );
+    
+    # done when time exceeds end time
+    last if $remaining<=0;
+
+    # check whether key was pressed and stop if it was
+    my $c = $opt->{allow_interrupt} && Player::Util::readkey();
+    if ($c) {
+      $self->log( "'$c' pressed - stop playing\n" );
+      last;
+    }
+    
+    # wait before checking again
+    Player::Util::sleep($remaining>0.1 ? 0.1 : $remaining);
+
+  }
+
+  my $finalseek = $opt->{finalseek};
+
+  my $pause_done;
+  
+  if (defined $finalseek) {
+    $self->seek($finalseek, {pausing=>'pausing'});
+    $pause_done ||= 1;
+  }
+  
+  if ($self->mpl_mutingMode) {
+    # in muting mode set volume to 0 at end of range
+    $self->mpl_doVoidCommand(
+      "volume 0 1", 
+      {pausing=>'pausing'} ,
+    );
+    $pause_done ||= 1;
+  }
+  
+  $self->ensurePaused if !$pause_done;
+  
+  $self->log( "play interval ended\n" );
+}
+
+sub playRange { my ($self, $t0, $t1, $opt) = @_;
+  
+  $self->logf( "play %8.3f-%8.3f\n", $t0, $t1 );
+
+  # if start time not defined, start from current position
+  if (!defined $t0) {
+    $self->logln(
+      "No start time defined - start from current position",
+    );
+    $self->ensurePaused;
+  }
+  else {
+    $self->seek($t0, {pausing=>'pausing'});
+  }
+
+  my $vol = $self->mpl_rangeVolume;
+  if (defined $vol) {
+    # if volume needs to be set, start playback at the same time
+    $self->mpl_doVoidCommand(
+      "volume $vol 1", 
+      {pausing=>'pausing_toggle'} ,
+    );
+  }
+  else {
+    $self->togglePause
+  }
+
+  # if end time $t1 is given and larger than $t0, 
+  if ($t1>$t0) {
+
+    my $finalseek = $self->videoFinalSeekTime($t0, $t1);
+    my $opt1={
+      seektime  => $t0, 
+      (defined $finalseek ? (finalseek=>$finalseek) : ()) ,
+    };
+
+    my $same_process = 1|| Flex::onWin() || $opt->{same_process};
+    $same_process
+      ? $self->mpl_timedStop($t1, {%$opt1, allow_interrupt=>1})
+      : $self->mpl_timedStopInProcess($t1, $opt);
+  }
+  return 1;
+}
+
 ## locate current stage
 
 sub stageFromLabelRequest { my ($self) = @_;
@@ -474,7 +505,7 @@ sub startProcess { my ($self, $par) = @_;
   my $file = $par->{with_file};
   
   if (!$file && ! -e $file) {
-    print "Can't start mplayer without input file!\n";
+    $self->log( "Can't start mplayer without input file!\n" );
     return;
   }
 
@@ -497,24 +528,23 @@ sub startProcess { my ($self, $par) = @_;
     '&' ,
   );
   
-  print "\nExecuting Command:\n  $com\n\n";
+  $self->log("\n");
+  $self->log( "Executing Command:\n" );
+  $self->log( "  $com\n\n" );
   system($com);
   
   # remove initial output after giving the process some time
   sleep(1);
-  $self->mpl_postLoadCheck($file);
+  return if !$self->mpl_postLoadCheck($file);
 
-  # window is only opened with video, not for audio
+  # seek to beginning and set volume
+  $self->seek(0, {pausing=>'pausing'});
+  $self->mpl_doVoidCommand('volume 100 1');
   
-  #my $title = 'Mplayer';
-  #print "\nWaiting for window: $title\n";
-  #my $mplwin = DH::GuiWin->wait_for_window(
-  #  "^${title}\$" ,
-  #  {maxwait=>10, viewable=>1, verbose=>1} ,
-  #);
-  
-  #return $mplwin ? 1 : undef;
+  return 1;
 }
+
+sub endProcess { $_[0]->mpl_doCommand('quit') }
 
 sub mpl_postLoadCheck { my ($self, $file) = @_;
   
@@ -529,7 +559,7 @@ sub mpl_postLoadCheck { my ($self, $file) = @_;
   
   my @resp;
   
-  print "Wait for 'Playing' line...\n";
+  $self->log( "Wait for 'Playing' line...\n" );
   while (1) {
     my $elapsed = $self->mpl_timeElapsed;
 
@@ -549,10 +579,11 @@ sub mpl_postLoadCheck { my ($self, $file) = @_;
       }
     }
     
-    printf "Elapsed %5.2f/%5.2f sec. Found: %s\n",
+    $self->logf( "Elapsed %5.2f/%5.2f sec. Found: %s\n",
       $elapsed,
       $tmax,
-      ($playingFound ? 'Yes' : 'No');
+      ($playingFound ? 'Yes' : 'No') ,
+    );
     
     #last if $finished;
     last if $playingFound;
@@ -560,25 +591,33 @@ sub mpl_postLoadCheck { my ($self, $file) = @_;
   }
   
   
-  printf "number of initial response lines: %d\n", 0+@resp;
-  print '  ', join("  \n", @resp), "\n";
+  $self->logf( "Number of initial response lines: %d\n", 0+@resp );
+  $self->log('  ');
+  for (@resp) {
+    $self->log("  $_\n");
+  }
   
   return if !@resp;
   
   # try 10x whether active file is correct
   
   my $expect = "ANS_path=$file";
-  print "\nWaiting for reponse '$expect'...\n";
+  $self->logln;
+  $self->log( "Waiting for reponse '$expect'...\n" );
   my $nwait = 10;
   for my $i (0..$nwait) {
-    my @resp = $self->mpl_doCommand('get_property path');
+    my @resp = $self->mpl_doCommand(
+      'get_property path', {pausing=>'pausing'}
+    );
     
     if (@resp==1 && $resp[-1] eq $expect) {
-      print "Correct reply found!\n";
+      $self->log( "Correct reply found!\n" );
       return 1;
     }
     
-    printf "Incorrect reply found after %d/%d sec:\n", $i, $nwait;
+    $self->logf( "Incorrect reply found after %d/%d sec:\n", 
+      $i, $nwait
+    );
     #for (@resp) { print "  $_\n"}
     
     sleep(1);
@@ -599,7 +638,6 @@ sub activateFileIfConnected { shift->activateConnectedFile(@_) }
 sub activateNonConnectedFile { my ($self, $file) = @_;
   $file //= $self->targetFile;
   $self->{knownActiveLabel} = undef;
-d::dd;
   $self->mpl_sendCommand("loadfile $file");
   Player::Util::sleep(1);
   return $self->mpl_postLoadCheck($file);
@@ -653,7 +691,7 @@ sub playRangeForFile { my ($self, $file, $t0, $t1, $opt) = @_;
 
   if (!$ok) {
     my $file = $self->targetFile;
-    print "Failed to activate file '$file' - give up!\n";
+    $self->log( "Failed to activate file '$file' - give up!\n" );
     return;
   }
   
@@ -673,7 +711,7 @@ sub mpl_activeItemWindow { my ($self) = @_;
   my $name = $self->currentlyActiveShortLabel;
   
   if (!$name) {
-    print "No current window - don't activate\n";
+    $self->log( "No current window - don't activate\n" );
     return;
   }
 
@@ -682,7 +720,7 @@ sub mpl_activeItemWindow { my ($self) = @_;
     $win
       ? 'Found window named '.$name
       : 'Did NOT find window named '.$name;
-  print "$res\n";
+  $self->log( "$res\n" );
   
   return $win;
 }
@@ -710,13 +748,23 @@ sub checkForProcess { my ($class, $regex) = @_;
   }
 }
 
+### window management
+
+sub activeWindowRegex { my ($self) = @_;
+  # In Mplayer only video files have a window
+  # and it doesn't have a name specific to the file
+  my $curlabel = $self->currentlyActiveShortLabel;
+  return if !$self->hasVideoExtension($curlabel);
+  return qr{^MPlayer$};
+}
+
 ### utilities that are currently not needed
 
 sub activateFile { my ($self, $file) = @_;
   my $label     = $self->shortLabelFromFile($file);
   my $curLabel  = $self->currentlyActiveShortLabel;
-  print "label    = $label\n";
-  print "curlabel = $curLabel\n";
+  $self->log( "label    = $label\n" );
+  $self->log( "curlabel = $curLabel\n" );
   return if $label eq $curLabel;
 }
 
@@ -724,8 +772,11 @@ sub activateFile { my ($self, $file) = @_;
 sub demoFile {
   my $file;
   $file = 'F:/phonmedia/FilmAudio/MoodLove.mkv';
+  $file = 'E:/perl/proj/player-wrapper/samples/det_countvid.avi';
   $file = Player::Util::flexname($file);
 }
+
+sub demoRange { (1.2720, 3.8090) }
 
 sub testreqs {
   my @mods = qw();
@@ -740,14 +791,14 @@ sub test201 { my ($pkg, $argv) = @_;
   my $file = $self->demoFile;
   $self->initializeCommand($file);
   $self->prepareForFile;
-d::dd;  
+
   $self->mpl_saveProject;
 
   my $ranges = $self->mpl_getLabelsFromSavedProject;
   print $self->dump($ranges);
 }
 
-sub test202info {'get selection'}
+sub test202info {'get position'}
 sub test202 { my ($pkg, $argv) = @_;
   my $class = ref $pkg || $pkg || __PACKAGE__;
   $class->testreqs;
@@ -755,26 +806,44 @@ sub test202 { my ($pkg, $argv) = @_;
   my $file = $self->demoFile;
   $self->initializeCommand($file);
   $self->prepareForFile;
-d::dd;  
-  my @sel = $self->mpl_getSelectionFormatted;
 
-  print $self->dump(\@sel);
+  my @resp = $self->mpl_doCommand('pausing_keep get_time_pos');
+
+  print $self->dump(\@resp);
+
+  printf "in one command: p=%s\n", $self->position;
 }
 
-sub test203info {'save project for the first time'}
+sub test203info {'get length'}
 sub test203 { my ($pkg, $argv) = @_;
   my $class = ref $pkg || $pkg || __PACKAGE__;
   $class->testreqs;
   my $self = $class->new;
-
   my $file = $self->demoFile;
   $self->initializeCommand($file);
   $self->prepareForFile;
 
-  $self->mpl_saveProjectFirstTime;
+  my @resp = $self->mpl_doCommand('get_time_length');
+
+  print $self->dump(\@resp);
   
+  printf "in one command: l=%s\n", $self->length;
 }
 
+sub test204info {'seek first arg (default: 1.234)'}
+sub test204 { my ($pkg, $argv) = @_;
+  my $class = ref $pkg || $pkg || __PACKAGE__;
+  $class->testreqs;
+  my $self = $class->new;
+  my $file = $self->demoFile;
+  $self->initializeCommand($file);
+  $self->prepareForFile;
+
+  my $t = $argv->[0] // 1.234;
+  $self->seek($t);
+
+  printf "new position: t=%s\n", $self->position;
+}
 
 use DH::Testkit;
 sub main {
