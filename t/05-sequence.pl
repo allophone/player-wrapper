@@ -60,7 +60,6 @@ sub interval { my ($i) = @_;
   for my $i (qw(3 1 4 1 5 9 3)) {
     my ($t0, $t1) = interval($i);
     $player->playRangeForFile($file, $t0, $t1);
-    last;
     DH::Util::sleep( $t1-$t0+0.1 );
   }
 
